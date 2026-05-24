@@ -50,6 +50,29 @@ If you are new to the codebase, the most useful reading order is:
 3. `pretrain-gene/`
 4. `finetune-gene/`
 
+## Quick Start
+
+1. Environment setup
+
+   Create the project environment from `environment.yml`:
+
+   ```bash
+   conda env create -f environment.yml
+   conda activate <env-name-defined-in-environment.yml>
+   ```
+
+2. Online demo
+
+   A live demo is available here:
+
+   [http://166.111.5.103:15557/](http://166.111.5.103:15557/)
+
+   This is the quickest way to inspect the current behavior while public weights are not yet released.
+
+3. Hugging Face release
+
+   TODO: add the public Hugging Face model and checkpoint links once the repository is officially open-sourced.
+
 ## Model Architecture
 
 The heart of the repository lives in `model/`, where the multimodal model is defined.
