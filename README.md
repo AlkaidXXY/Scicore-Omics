@@ -1,6 +1,6 @@
 # SciCore-Omics
 
-SciCore-Omics is a gene-aware multimodal modeling project built around the MiniCPM-V2.6 stack. The central goal of the repository is to make transcriptomic signals usable alongside natural language and tissue imagery within a single instruction-following model. In practice, this repository extends the MiniCPM-V architecture with a dedicated gene branch, provides training code for aligning that branch to the language model, and includes downstream fine-tuning and baseline evaluation pipelines for gene-centric spatial transcriptomics tasks.
+SciCore-Omics is a gene-aware multimodal modeling project built around the MiniCPM-V stack. The central goal of the repository is to make transcriptomic signals usable alongside natural language and tissue imagery within a single instruction-following model. In practice, this repository extends the MiniCPM-V architecture with a dedicated gene branch, provides training code for aligning that branch to the language model, and includes downstream fine-tuning and baseline evaluation pipelines for gene-centric spatial transcriptomics tasks.
 
 
 ## Core Idea
@@ -40,7 +40,7 @@ The project is organized around four main code areas:
 | `finetune-gene/` | Earlier Hugging Face `Trainer` + DeepSpeed fine-tuning pipeline for multimodal gene experiments. |
 | `qformer/` | Gene bridge distillation utilities for training `gene_qformer` and `gene_projector`, plus weight injection into a full model directory. |
 | `pretrain-gene/` | Cleaner GitHub-facing training, inference, and baseline evaluation scripts, including C2S and CellWhisperer comparisons. |
-| `src/` | TODO |
+| `src/` | TO DO |
 | `environment.yml` | Conda environment specification for the research stack. |
 
 If you are new to the codebase, the most useful reading order is:
@@ -104,27 +104,70 @@ The multimodal merge happens inside the MiniCPM-V modeling logic, where image fe
 
 ## Main Workflows
 
+`Main Workflows` should describe the project's three primary execution paths:
+
+1. multimodal inference and chat
+2. gene bridge distillation
+3. downstream fine-tuning
+
+Anything that is mainly about benchmarking, scoring, or comparing against baselines belongs in the separate evaluation section below.
+
 ### 1. Core model loading and multimodal inference
 
-Use `model/` when you need to load the gene-aware MiniCPM-V architecture itself.
-
-Typical loading pattern:
+Use `model/` when you need to load the gene-aware MiniCPM-V architecture itself. A minimal chat-style inference flow looks like this:
 
 ```python
-from transformers import AutoModel, AutoProcessor
+import torch
+import anndata as ad
+import scipy.sparse as sp
+from PIL import Image
+from transformers import AutoModel, AutoTokenizer, AutoProcessor
 
+torch.cuda.set_device(3)
+
+your_gene_path = "your_gene_path"
+your_image_path = "your_image_path"
+model_path = "/path/to/model"
+
+gene_data = ad.read_h5ad(your_gene_path)
+if sp.issparse(gene_data.X):
+    gene_data.X = gene_data.X.astype("float32")
+else:
+    gene_data.X = gene_data.X.astype("float32")
+
+image = Image.open(your_image_path).convert("RGB")
+
+processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
+tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 model = AutoModel.from_pretrained(
-    "/path/to/model",
+    model_path,
+    torch_dtype=torch.bfloat16,
     trust_remote_code=True,
+).cuda()
+model.eval()
+
+msgs = [
+    {
+        "role": "user",
+        "content": "<image>\n<gene>\n\nPlease analyze this sample and describe the most likely tissue or region.",
+    }
+]
+
+answers = model.chat(
+    image=image,
+    gene_sequence=gene_data,
+    msgs=msgs,
+    context=None,
+    processor=processor,
+    tokenizer=tokenizer,
+    sampling=True,
+    temperature=0.7,
 )
 
-processor = AutoProcessor.from_pretrained(
-    "/path/to/model",
-    trust_remote_code=True,
-)
+print(answers)
 ```
 
-This path is the right starting point if you are debugging model internals, inspecting how gene spans are inserted, or building a new downstream training or inference entrypoint.
+This path is the right starting point if you are debugging model internals, inspecting how gene spans are inserted, or building a new downstream training or inference entrypoint. The same structure can be adapted for gene-only prompts by omitting `image` and using the `gene_sequence` argument alone, or for image-only prompts by omitting `gene_sequence` and using `image` alone.
 
 ### 2. Gene bridge distillation
 
@@ -146,32 +189,34 @@ There are three main scripts:
 
 After distillation, `qformer/inject_gene_bridge_weights.py` copies the trained bridge weights into a full sharded model directory.
 
-### 3. Cleaned multimodal SFT and evaluation workflows
+### 3. Downstream fine-tuning
 
-The `pretrain-gene/` directory contains the cleaner GitHub-facing workflow for practical experiments. It includes:
+The `pretrain-gene/` and `finetune-gene/` directories contain the downstream training paths that adapt the base multimodal model to task-specific settings:
 
-- Swift model registration for MiniCPM-V + gene pipelines
-- gene-only, vision-only, and gene+vision SFT launch scripts
-- C2S baseline training and evaluation
-- CellWhisperer and CellWhisperer-LLaVA preparation and evaluation utilities
-
-This is the best starting point for users who want a more organized view of the later training and evaluation stack rather than the older experimental code layout.
-
-### 4. Earlier Hugging Face Trainer based fine-tuning
-
-The `finetune-gene/` directory contains an earlier end-to-end training stack built around Hugging Face `Trainer` and DeepSpeed.
-
-Important files include:
-
-| File | Purpose |
+| File / Folder | Purpose |
 | --- | --- |
-| `finetune-gene/finetune.py` | Main fine-tuning entrypoint. |
+| `pretrain-gene/src/pretrain_gene/swift_minicpm_gene_register.py` | Swift registration for the gene-aware MiniCPM-V path. |
+| `pretrain-gene/src/pretrain_gene/swift_minicpm_gene_qformer_register.py` | Swift registration for the gene + Q-Former variant. |
+| `pretrain-gene/scripts/` | Shell entrypoints for gene-only, vision-only, and gene+vision SFT, plus inference wrappers. |
+| `finetune-gene/finetune.py` | Earlier Hugging Face `Trainer` + DeepSpeed fine-tuning entrypoint. |
 | `finetune-gene/dataset.py` | Multimodal dataset loader for text, image, and gene inputs. |
 | `finetune-gene/trainer.py` | Custom trainer wrapper. |
 | `finetune-gene/gene_tokenizer.py` | Simpler tokenizer implementation used in this path. |
 | `finetune-gene/finetune_1123-2.sh` | Example training launcher. |
 
-Use this directory when reproducing older runs or when you specifically want the Hugging Face `Trainer`-based training flow.
+Use these directories when reproducing older runs or when you specifically want the Hugging Face `Trainer`-based flow or the cleaned Swift-based SFT flow.
+
+## Evaluation and Baselines
+
+Evaluation is intentionally separated from the main workflow summary.
+
+The cleaned baseline and scoring utilities live primarily in `pretrain-gene/`:
+
+- C2S training and gene-only evaluation
+- CellWhisperer feature preparation and similarity evaluation
+- CellWhisperer-LLaVA LoRA evaluation
+
+These scripts are useful for benchmarking the gene branch against non-MiniCPM baselines, but they are not part of the core “how to run the model” path.
 
 ## Data and Input Conventions
 
