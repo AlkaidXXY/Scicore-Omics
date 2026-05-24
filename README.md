@@ -52,22 +52,24 @@ If you are new to the codebase, the most useful reading order is:
 
 ## Quick Start
 
-1. Environment setup
-
-   Create the project environment from `environment.yml`:
-
-   ```bash
-   conda env create -f environment.yml
-   conda activate <env-name-defined-in-environment.yml>
-   ```
-
-2. Online demo
+1. Online demo
 
    A live demo is available here:
 
    [http://166.111.5.103:15557/](http://166.111.5.103:15557/)
 
    This is the quickest way to inspect the current behavior while public weights are not yet released.
+
+2. Environment setup
+
+   To use the model locally, first create the project environment from `environment.yml`:
+
+   ```bash
+   conda env create -f environment.yml
+   conda activate OMICS
+   ```
+
+   The reference environment was developed on Linux with NVIDIA A800-SXM4-80GB GPUs. The `flash-attn` package can be sensitive to the local CUDA, PyTorch, and GPU setup, so it may need to be adjusted for a different machine.
 
 3. Hugging Face release
 
@@ -102,74 +104,9 @@ At a high level, the repository uses the following sequence:
 
 The multimodal merge happens inside the MiniCPM-V modeling logic, where image features and gene features are both converted into embedding spans and then scattered into the final `inputs_embeds` sequence before language-model forward or generation.
 
-## Main Workflows
+## Training Workflows
 
-`Main Workflows` should describe the project's three primary execution paths:
-
-1. multimodal inference and chat
-2. gene bridge distillation
-3. downstream fine-tuning
-
-Anything that is mainly about benchmarking, scoring, or comparing against baselines belongs in the separate evaluation section below.
-
-### 1. Core model loading and multimodal inference
-
-Use `model/` when you need to load the gene-aware MiniCPM-V architecture itself. A minimal chat-style inference flow looks like this:
-
-```python
-import torch
-import anndata as ad
-import scipy.sparse as sp
-from PIL import Image
-from transformers import AutoModel, AutoTokenizer, AutoProcessor
-
-torch.cuda.set_device(3)
-
-your_gene_path = "your_gene_path"
-your_image_path = "your_image_path"
-model_path = "/path/to/model"
-
-gene_data = ad.read_h5ad(your_gene_path)
-if sp.issparse(gene_data.X):
-    gene_data.X = gene_data.X.astype("float32")
-else:
-    gene_data.X = gene_data.X.astype("float32")
-
-image = Image.open(your_image_path).convert("RGB")
-
-processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
-tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-model = AutoModel.from_pretrained(
-    model_path,
-    torch_dtype=torch.bfloat16,
-    trust_remote_code=True,
-).cuda()
-model.eval()
-
-msgs = [
-    {
-        "role": "user",
-        "content": "<image>\n<gene>\n\nPlease analyze this sample and describe the most likely tissue or region.",
-    }
-]
-
-answers = model.chat(
-    image=image,
-    gene_sequence=gene_data,
-    msgs=msgs,
-    context=None,
-    processor=processor,
-    tokenizer=tokenizer,
-    sampling=True,
-    temperature=0.7,
-)
-
-print(answers)
-```
-
-This path is the right starting point if you are debugging model internals, inspecting how gene spans are inserted, or building a new downstream training or inference entrypoint. The same structure can be adapted for gene-only prompts by omitting `image` and using the `gene_sequence` argument alone, or for image-only prompts by omitting `gene_sequence` and using `image` alone.
-
-### 2. Gene bridge distillation
+### 1. Gene bridge distillation with `qformer/`
 
 The `qformer/` directory isolates training for the gene bridge modules:
 
@@ -189,100 +126,36 @@ There are three main scripts:
 
 After distillation, `qformer/inject_gene_bridge_weights.py` copies the trained bridge weights into a full sharded model directory.
 
-### 3. Downstream fine-tuning
+### 2. Fine-tuning with `finetune-gene/`
 
-The `pretrain-gene/` and `finetune-gene/` directories contain the downstream training paths that adapt the base multimodal model to task-specific settings:
+The `finetune-gene/` directory contains an earlier end-to-end training stack built around Hugging Face `Trainer` and DeepSpeed.
+
+Important files include:
+
+| File | Purpose |
+| --- | --- |
+| `finetune-gene/finetune.py` | Main fine-tuning entrypoint. |
+| `finetune-gene/dataset.py` | Multimodal dataset loader for text, image, and gene inputs. |
+| `finetune-gene/trainer.py` | Custom trainer wrapper. |
+| `finetune-gene/gene_tokenizer.py` | Simpler tokenizer implementation used in this path. |
+| `finetune-gene/finetune_1123-2.sh` | Example training launcher. |
+
+Use this directory when reproducing older runs or when you specifically want the Hugging Face `Trainer`-based training flow.
+
+### 3. SFT and training scripts with `pretrain-gene/`
+
+The `pretrain-gene/` directory contains the cleaner GitHub-facing workflow for practical experiments. It includes:
+
+- Swift model registration for MiniCPM-V + gene pipelines
+- gene-only, vision-only, and gene+vision SFT launch scripts
+- C2S training utilities
+- CellWhisperer-LLaVA training utilities
 
 | File / Folder | Purpose |
 | --- | --- |
 | `pretrain-gene/src/pretrain_gene/swift_minicpm_gene_register.py` | Swift registration for the gene-aware MiniCPM-V path. |
 | `pretrain-gene/src/pretrain_gene/swift_minicpm_gene_qformer_register.py` | Swift registration for the gene + Q-Former variant. |
 | `pretrain-gene/scripts/` | Shell entrypoints for gene-only, vision-only, and gene+vision SFT, plus inference wrappers. |
-| `finetune-gene/finetune.py` | Earlier Hugging Face `Trainer` + DeepSpeed fine-tuning entrypoint. |
-| `finetune-gene/dataset.py` | Multimodal dataset loader for text, image, and gene inputs. |
-| `finetune-gene/trainer.py` | Custom trainer wrapper. |
-| `finetune-gene/gene_tokenizer.py` | Simpler tokenizer implementation used in this path. |
-| `finetune-gene/finetune_1123-2.sh` | Example training launcher. |
-
-Use these directories when reproducing older runs or when you specifically want the Hugging Face `Trainer`-based flow or the cleaned Swift-based SFT flow.
-
-## Evaluation and Baselines
-
-Evaluation is intentionally separated from the main workflow summary.
-
-The cleaned baseline and scoring utilities live primarily in `pretrain-gene/`:
-
-- C2S training and gene-only evaluation
-- CellWhisperer feature preparation and similarity evaluation
-- CellWhisperer-LLaVA LoRA evaluation
-
-These scripts are useful for benchmarking the gene branch against non-MiniCPM baselines, but they are not part of the core “how to run the model” path.
-
-## Data and Input Conventions
-
-The repository assumes several recurring data patterns:
-
-- Transcriptomic inputs are typically stored as `.h5ad`.
-- Training instances are commonly described through JSON or JSONL records that reference messages plus gene and optionally image paths.
-- The processor expands the `"<gene>"` placeholder in the prompt into a dedicated token span and records the corresponding `gene_bound` indices.
-- Image handling follows the MiniCPM-V processor conventions from the vision branch.
-
-Because the code mixes model definitions with lab-specific experiments, data schemas are consistent in spirit but not always normalized into one public API. Expect to inspect the script you plan to run and adapt paths and fields accordingly.
-
-## Environment
-
-The project is designed for a Linux + CUDA research environment and assumes access to a relatively heavy multimodal stack. The supplied `environment.yml` is the right starting point.
-
-At a high level, the environment expects components such as:
-
-- PyTorch
-- Transformers
-- DeepSpeed
-- FlashAttention
-- `ms-swift`
-- `anndata` and the scientific Python stack for transcriptomics data
-
-Typical setup:
-
-```bash
-conda env create -f environment.yml
-conda activate <env-name-defined-in-environment.yml>
-```
-
-Many scripts assume GPU availability, and several training paths are written with multi-GPU or distributed execution in mind.
-
-## Practical Notes Before Running Anything
-
-### 1. Update hardcoded paths
-
-Several files preserve lab-local absolute paths for:
-
-- model directories
-- tokenizer resources
-- training and evaluation datasets
-- output directories
-- custom registration files
-
-Before running a workflow in a new environment, search for and replace those paths.
-
-### 2. Check the gene tokenizer resources
-
-The processor and related scripts rely on the resources under `model/gene_tokenizer/`, including:
-
-- tokenizer implementation
-- `vocab.json`
-- reference `.h5ad` files used for gene alignment
-
-Make sure these are present and that your scripts point to the correct location.
-
-### 3. Expect mixed maturity across modules
-
-This repository contains both:
-
-- core model code that defines the actual architecture
-- experiment-oriented scripts with narrow dataset assumptions
-
-That is normal for a research repository, but it means you should treat script defaults as examples rather than portable production settings.
 
 ## Recommended Starting Points
 
@@ -290,35 +163,5 @@ If your goal is:
 
 - understand the architecture: start with `model/`
 - train or improve the gene bridge: start with `qformer/`
-- run a cleaner downstream training or evaluation workflow: start with `pretrain-gene/`
-- reproduce older fine-tuning experiments: start with `finetune-gene/`
-
-## Repository Hygiene
-
-Large artifacts should stay out of Git. In particular, avoid committing:
-
-- checkpoints and model weights (`.pt`, `.pth`, `.bin`, `.ckpt`, `.safetensors`)
-- transcriptomics datasets (`.h5ad`, `.npz`, large `.csv`)
-- generated logs and outputs
-- caches and temporary files
-
-This repository is much easier to share and maintain when code, configuration, and lightweight metadata are kept separate from large training artifacts.
-
-## Companion Documentation
-
-Two subdirectories already benefit from dedicated folder-level documentation:
-
-- `pretrain-gene/`
-- `qformer/`
-
-Those folder-specific READMEs are the right place for script-by-script usage details, while this top-level README is intended to explain the overall scientific and engineering structure of the project.
-
-## Summary
-
-SciCore-Omics is best understood as a gene-aware multimodal extension of MiniCPM-V with three layers of functionality:
-
-1. a core model that integrates text, image, and gene embeddings
-2. bridge-training utilities that align gene representations to the language model
-3. downstream fine-tuning and evaluation pipelines for multimodal and gene-only tasks
-
-If you are entering the codebase for the first time, read `model/` to understand the architecture, then move to `qformer/` and `pretrain-gene/` depending on whether your next step is representation alignment or task-level training.
+- reproduce earlier fine-tuning experiments: start with `finetune-gene/`
+- run the cleaned SFT and downstream training scripts: start with `pretrain-gene/`
