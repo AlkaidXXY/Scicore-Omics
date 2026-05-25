@@ -37,18 +37,17 @@ The project is organized around four main code areas:
 | Path | Role |
 | --- | --- |
 | `model/` | Core model and processor definitions for the gene-aware MiniCPM-V variant. |
-| `finetune-gene/` | Earlier Hugging Face `Trainer` + DeepSpeed fine-tuning pipeline for multimodal gene experiments. |
-| `qformer/` | Gene bridge distillation utilities for training `gene_qformer` and `gene_projector`, plus weight injection into a full model directory. |
-| `pretrain-gene/` | Cleaner GitHub-facing training, inference, and baseline evaluation scripts, including C2S and CellWhisperer comparisons. |
-| `src/` | TO DO |
+| `train-distrill-gene/` | Gene bridge distillation utilities for training `gene_qformer` and `gene_projector`, plus weight injection into a full model directory. |
+| `train-swift-cpt&sft/` | Swift-based CPT/SFT training, inference, and baseline utilities for gene-aware MiniCPM-V workflows. |
+| `train-rl/` | GSPO-style reinforcement learning pipeline for preference or score-guided multimodal optimization. |
 | `environment.yml` | Conda environment specification for the research stack. |
 
 If you are new to the codebase, the most useful reading order is:
 
 1. `model/`
-2. `qformer/`
-3. `pretrain-gene/`
-4. `finetune-gene/`
+2. `train-distrill-gene/`
+3. `train-swift-cpt&sft/`
+4. `train-rl/`
 
 ## Quick Start
 
@@ -106,9 +105,9 @@ The multimodal merge happens inside the MiniCPM-V modeling logic, where image fe
 
 ## Training Workflows
 
-### 1. Gene bridge distillation with `qformer/`
+### 1. Gene bridge distillation with `train-distrill-gene/`
 
-The `qformer/` directory isolates training for the gene bridge modules:
+The `train-distrill-gene/` directory isolates training for the gene bridge modules:
 
 - `gene_qformer`
 - `gene_projector`
@@ -120,31 +119,15 @@ There are three main scripts:
 
 | File | Purpose |
 | --- | --- |
-| `qformer/train_gene_bridge_distill.py` | Simplest single-GPU bridge distillation. |
-| `qformer/train_gene_bridge_distill_ddp.py` | Distributed version with cross-rank negatives. |
-| `qformer/train_gene_bridge_distill_real_processor.py` | Preferred current training path using the real processor and reference-gene alignment. |
+| `train-distrill-gene/train_gene_bridge_distill.py` | Simplest single-GPU bridge distillation. |
+| `train-distrill-gene/train_gene_bridge_distill_ddp.py` | Distributed version with cross-rank negatives. |
+| `train-distrill-gene/train_gene_bridge_distill_real_processor.py` | Preferred current training path using the real processor and reference-gene alignment. |
 
-After distillation, `qformer/inject_gene_bridge_weights.py` copies the trained bridge weights into a full sharded model directory.
+After distillation, `train-distrill-gene/inject_gene_bridge_weights.py` copies the trained bridge weights into a full sharded model directory.
 
-### 2. Fine-tuning with `finetune-gene/`
+### 2. CPT/SFT training with `train-swift-cpt&sft/`
 
-The `finetune-gene/` directory contains an earlier end-to-end training stack built around Hugging Face `Trainer` and DeepSpeed.
-
-Important files include:
-
-| File | Purpose |
-| --- | --- |
-| `finetune-gene/finetune.py` | Main fine-tuning entrypoint. |
-| `finetune-gene/dataset.py` | Multimodal dataset loader for text, image, and gene inputs. |
-| `finetune-gene/trainer.py` | Custom trainer wrapper. |
-| `finetune-gene/gene_tokenizer.py` | Simpler tokenizer implementation used in this path. |
-| `finetune-gene/finetune_1123-2.sh` | Example training launcher. |
-
-Use this directory when reproducing older runs or when you specifically want the Hugging Face `Trainer`-based training flow.
-
-### 3. SFT and training scripts with `pretrain-gene/`
-
-The `pretrain-gene/` directory contains the cleaner GitHub-facing workflow for practical experiments. It includes:
+The `train-swift-cpt&sft/` directory contains the cleaner GitHub-facing workflow for practical experiments. It includes:
 
 - Swift model registration for MiniCPM-V + gene pipelines
 - gene-only, vision-only, and gene+vision SFT launch scripts
@@ -153,15 +136,30 @@ The `pretrain-gene/` directory contains the cleaner GitHub-facing workflow for p
 
 | File / Folder | Purpose |
 | --- | --- |
-| `pretrain-gene/src/pretrain_gene/swift_minicpm_gene_register.py` | Swift registration for the gene-aware MiniCPM-V path. |
-| `pretrain-gene/src/pretrain_gene/swift_minicpm_gene_qformer_register.py` | Swift registration for the gene + Q-Former variant. |
-| `pretrain-gene/scripts/` | Shell entrypoints for gene-only, vision-only, and gene+vision SFT, plus inference wrappers. |
+| `train-swift-cpt&sft/src/pretrain_gene/swift_minicpm_gene_register.py` | Swift registration for the gene-aware MiniCPM-V path. |
+| `train-swift-cpt&sft/src/pretrain_gene/swift_minicpm_gene_qformer_register.py` | Swift registration for the gene + Q-Former variant. |
+| `train-swift-cpt&sft/scripts/` | Shell entrypoints for gene-only, vision-only, and gene+vision SFT, plus inference wrappers. |
+| `train-swift-cpt&sft/src/pretrain_gene/train_c2s_lora.py` | C2S LoRA training utility. |
+| `train-swift-cpt&sft/src/pretrain_gene/prepare_cellwhisperer_dlpfc_sft.py` | CellWhisperer-LLaVA SFT data preparation utility. |
+
+### 3. RL training with `train-rl/`
+
+The `train-rl/` directory contains a GSPO-style reinforcement learning pipeline for score-guided multimodal optimization. It separates rollout preparation, reference-model scoring, and distributed actor updates:
+
+- `gen_worker.py` samples examples, builds candidate batches with `GSPODataset`, expands single-token `<gene>` placeholders into 32-token gene spans when needed, computes old-policy token log probabilities for fixed outputs, and uploads packed rollouts.
+- `ref_server.py` runs a Flask reference server, restores packed image/gene/text tensors, computes reference-model token log probabilities, and queues batches for training.
+- `finetune_gspo.py` runs the DDP training loop, pulls rollout batches from the reference server, dynamically enables trainable parameter groups according to modality, and optimizes a clipped GSPO/PPO-style objective with a KL penalty.
+- `dataset.py` provides supervised and GSPO datasets for text, image, and gene samples.
+- `gene_tokenizer.py` provides the gene tokenizer used by the RL data pipeline.
+- `run_gspo.sh` launches the full workflow, including reference server, generation worker, distributed training, logging, and checkpoint output.
+
+The RL script freezes the full model by default and selectively trains the gene bridge, image resampler, and final LLM layer depending on whether the current rollout contains gene and/or image inputs.
 
 ## Recommended Starting Points
 
 If your goal is:
 
 - understand the architecture: start with `model/`
-- train or improve the gene bridge: start with `qformer/`
-- reproduce earlier fine-tuning experiments: start with `finetune-gene/`
-- run the cleaned SFT and downstream training scripts: start with `pretrain-gene/`
+- train or improve the gene bridge: start with `train-distrill-gene/`
+- run the cleaned CPT/SFT and downstream training scripts: start with `train-swift-cpt&sft/`
+- run score-guided RL optimization: start with `train-rl/`
