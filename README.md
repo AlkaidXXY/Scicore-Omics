@@ -38,7 +38,7 @@ The project is organized around four main code areas:
 | --- | --- |
 | `model/` | Core model and processor definitions for the gene-aware MiniCPM-V variant. |
 | `train-distrill-gene/` | Gene bridge distillation utilities for training `gene_qformer` and `gene_projector`, plus weight injection into a full model directory. |
-| `train-swift-cpt&sft/` | Swift-based CPT/SFT training, inference, and baseline utilities for gene-aware MiniCPM-V workflows. |
+| `train-swift-cpt-sft/` | Swift-based CPT/SFT example scripts and custom registration for gene-aware MiniCPM-V workflows. |
 | `train-rl/` | GSPO-style reinforcement learning pipeline for preference or score-guided multimodal optimization. |
 | `environment.yml` | Conda environment specification for the research stack. |
 
@@ -46,7 +46,7 @@ If you are new to the codebase, the most useful reading order is:
 
 1. `model/`
 2. `train-distrill-gene/`
-3. `train-swift-cpt&sft/`
+3. `train-swift-cpt-sft/`
 4. `train-rl/`
 
 ## Quick Start
@@ -125,22 +125,30 @@ There are three main scripts:
 
 After distillation, `train-distrill-gene/inject_gene_bridge_weights.py` copies the trained bridge weights into a full sharded model directory.
 
-### 2. CPT/SFT training with `train-swift-cpt&sft/`
+### 2. CPT/SFT training with `train-swift-cpt-sft/`
 
-The `train-swift-cpt&sft/` directory contains the cleaner GitHub-facing workflow for practical experiments. It includes:
+The `train-swift-cpt-sft/` directory contains Swift-based CPT/SFT entrypoints for the gene-aware MiniCPM-V model. These scripts use the `ms-swift` framework directly through:
 
-- Swift model registration for MiniCPM-V + gene pipelines
-- gene-only, vision-only, and gene+vision SFT launch scripts
-- C2S training utilities
-- CellWhisperer-LLaVA training utilities
+```bash
+swift pt
+swift sft
+```
+
+The gene-specific logic is injected through Swift's custom registration mechanism rather than by modifying the Swift framework itself. In other words, the training scripts call `swift pt` or `swift sft`, and pass the custom register file through `--custom_register_path`.
+
+The custom registration file lives under:
+
+```text
+train-swift-cpt-sft/register/my_register_qformer.py
+```
+
+This register file defines the `minicpm_v2_6_gene` model/template path for Swift and already contains the gene handling logic. It reads `.h5ad` gene inputs, tokenizes gene names, builds `gene_input_ids`, `gene_attention_mask`, and `gene_bound`, expands the `<gene>` placeholder into the Q-Former gene span, and exposes the resulting fields to the model batch. Because this logic is handled in the register/template layer, no extra changes to the `ms-swift` source code are required as long as the model forward path supports the gene fields.
 
 | File / Folder | Purpose |
 | --- | --- |
-| `train-swift-cpt&sft/src/pretrain_gene/swift_minicpm_gene_register.py` | Swift registration for the gene-aware MiniCPM-V path. |
-| `train-swift-cpt&sft/src/pretrain_gene/swift_minicpm_gene_qformer_register.py` | Swift registration for the gene + Q-Former variant. |
-| `train-swift-cpt&sft/scripts/` | Shell entrypoints for gene-only, vision-only, and gene+vision SFT, plus inference wrappers. |
-| `train-swift-cpt&sft/src/pretrain_gene/train_c2s_lora.py` | C2S LoRA training utility. |
-| `train-swift-cpt&sft/src/pretrain_gene/prepare_cellwhisperer_dlpfc_sft.py` | CellWhisperer-LLaVA SFT data preparation utility. |
+| `train-swift-cpt-sft/register/my_register_qformer.py` | Swift custom register file for the gene-aware MiniCPM-V + Q-Former model. |
+| `train-swift-cpt-sft/script/cpt-example.sh` | Example CPT/continued-training launcher using `swift sft` with the custom register path. |
+| `train-swift-cpt-sft/script/sft-example.sh` | Example SFT launcher using `swift sft`, LoRA, gene/Q-Former target modules, and the custom register path. |
 
 ### 3. RL training with `train-rl/`
 
@@ -161,5 +169,5 @@ If your goal is:
 
 - understand the architecture: start with `model/`
 - train or improve the gene bridge: start with `train-distrill-gene/`
-- run the cleaned CPT/SFT and downstream training scripts: start with `train-swift-cpt&sft/`
+- run the cleaned CPT/SFT and downstream training scripts: start with `train-swift-cpt-sft/`
 - run score-guided RL optimization: start with `train-rl/`
