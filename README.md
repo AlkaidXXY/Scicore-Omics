@@ -9,7 +9,7 @@ SciCore-Omics is a gene-aware multimodal framework for joint reasoning over hist
 - **Gene-aware tri-modal foundation model.** SciCore-Omics extends MiniCPM-V from image-text modeling to gene-image-text reasoning with an explicit transcriptomic input pathway.
 - **Dedicated gene representation bridge.** The gene branch uses Nicheformer, a Gene Q-Former, and a Gene Projector to transform variable-length gene-expression signals into fixed-length LLM-compatible embeddings.
 - **Staged training pipeline.** The repository provides gene bridge distillation, Swift-based CPT/SFT, and GSPO/PPO-style RL refinement as separate training stages.
-- **Practical release path.** The project includes a live demo, reproducible training entrypoints, and placeholders for future Hugging Face model release.
+- **Practical release path.** The project includes a live demo, a public Hugging Face Space, reproducible training entrypoints, and a clear path toward future weight release.
 
 ## Core Idea
 
@@ -85,7 +85,7 @@ If you are new to the codebase, the most useful reading order is:
    | Demo | Available |
    | Training code | Available |
    | Model weights | TODO |
-   | Hugging Face | TODO |
+| Hugging Face | [SciCore-Omics Space](https://huggingface.co/spaces/Alkaidxxy/SciCore-Omics) |
 
 ## Model Architecture
 
@@ -183,3 +183,4 @@ If your goal is:
 - align or improve the gene bridge: start with `train-distill-gene/`
 - run CPT/SFT with Swift custom registration: start with `train-swift-cpt-sft/`
 - run score-guided RL optimization: start with `train-rl/`
+

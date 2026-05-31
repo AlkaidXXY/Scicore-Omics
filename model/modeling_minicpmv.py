@@ -32,7 +32,6 @@ def _assert_finite(x: torch.Tensor, name: str):
     if not torch.is_tensor(x):
         return
     if not torch.isfinite(x).all():
-        # 打印一些统计，方便定位
         with torch.no_grad():
             finite_mask = torch.isfinite(x)
             num_bad = (~finite_mask).sum().item()
@@ -231,34 +230,25 @@ class MiniCPMV(MiniCPMVPreTrainedModel):
                 attention_mask=gene_attention_mask
             )
 
-            # 丢掉前 3 个 special token（按你当前实现）
             gene_tokens = nicheformer_output[:, 3:, :]  # [B, L, 512]
 
             gene_pad_mask = None
             if gene_attention_mask is not None:
                 gene_pad_mask = (gene_attention_mask[:, 3:] == 0)
 
-            # dtype 对齐：以 gene_qformer 的参数 dtype 为准
+
             qformer_dtype = next(self.gene_qformer.parameters()).dtype
             gene_tokens = gene_tokens.to(dtype=qformer_dtype)
 
-            # Q-Former: [B, L, 512] -> [B, 32, 768]
+
             q_tokens = self.gene_qformer(gene_tokens, gene_pad_mask=gene_pad_mask)
 
-            # Projector: [B, 32, 768] -> [B, 32, embed_dim]
             proj_dtype = next(self.gene_projector.parameters()).dtype
             q_tokens = q_tokens.to(dtype=proj_dtype)
             gene_tokens_llm = self.gene_projector(q_tokens)  # [B, 32, 3584]
             _assert_finite(gene_tokens, "gene_tokens(after nicheformer)")
             _assert_finite(q_tokens, "q_tokens(after qformer)")
             _assert_finite(gene_tokens_llm, "gene_tokens_llm(after projector)")
-
-            # # 插入到对应位置（默认每个样本最多 1 个 <gene> span）
-            # gene_bounds = data.get('gene_bound', [[] for _ in range(bs)])
-            # for i, bounds in enumerate(gene_bounds):
-            #     if not bounds:
-            #         continue
-            #     gene_hidden_states[i] = gene_tokens_llm[i]  # [32, embed_dim]
 
             gene_bounds = data.get('gene_bound', [None] * bs)
 
@@ -271,7 +261,7 @@ class MiniCPMV(MiniCPMVPreTrainedModel):
                 if torch.is_tensor(bounds) and bounds.numel() == 0:
                     continue
 
-                # 默认每个样本只用第一个 gene span（你当前设定）
+
                 gene_hidden_states[i] = gene_tokens_llm[i]  # [32, embed_dim]
 
         # =========================
