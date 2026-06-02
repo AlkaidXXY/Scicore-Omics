@@ -62,11 +62,10 @@ class MiniCPMV(MiniCPMVPreTrainedModel):
         self.gene_dim = self.nicheformer.config.dim_model  # e.g. 512
 
         self.gene_qformer = GeneQFormerBiomedBERT(
-            biomedbert_name="/data2/xiaoxinyu/biomedbert",  # 只用来读 config（不会加载权重）
             gene_in_dim=self.gene_dim,  # 512
             hidden=768,
             num_queries=32,
-            load_pretrained_bert=False,  # ✅ 关键：不从 biomedbert 加载权重
+            load_pretrained_bert=False, 
         )
 
         # Project: 768 -> LLM hidden (e.g. 3584)
