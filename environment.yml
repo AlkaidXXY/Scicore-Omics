@@ -1,4 +1,4 @@
-name: Scicore-Omics
+name: OMICS
 channels:
   - conda-forge
   - https://repo.anaconda.com/pkgs/main
