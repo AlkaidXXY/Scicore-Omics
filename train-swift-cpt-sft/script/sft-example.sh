@@ -15,7 +15,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:128
 # [必须修改] 请确保这个路径指向你真实的 vocab.json
 export GENE_VOCAB_PATH="/model/gene_tokenizer/vocab.json"
 
-export FREEZE_NICHEFORMER=ture
+export FREEZE_NICHEFORMER=true
 export FREEZE_QFORMER_PROJECT=false
 
 # ---------------- 路径配置 ----------------
