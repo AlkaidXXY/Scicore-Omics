@@ -186,3 +186,22 @@ If your goal is:
 - run CPT/SFT with Swift custom registration: start with `train-swift-cpt-sft/`
 - run score-guided RL optimization: start with `train-rl/`
 
+## Citation
+
+If you find SciCore-Omics useful for your research, please consider citing our work:
+
+```bibtex
+@article{xiao2026scicoreomics,
+  title={SciCore-Omics: a tri-modal foundation model unifying histology, spatial transcriptomics and language for spatial biology},
+  author={},
+  journal={arXiv preprint arXiv:XXXX.XXXXX},
+  year={2026}
+}
+```
+
+## Contact
+
+If you have questions, suggestions, or bug reports, please open an issue in this repository or contact us by email:
+
+* Xinyu Xiao: [xinyuxiao1@outlook.com](mailto:xinyuxiao1@outlook.com)
+
